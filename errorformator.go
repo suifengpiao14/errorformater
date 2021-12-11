@@ -1,4 +1,4 @@
-package errorformater
+package errorformator
 
 import (
 	"encoding/json"
@@ -17,23 +17,6 @@ type ErrorFormator struct {
 	Filename string `json:"filename"`
 	mutex    sync.Mutex
 }
-
-func New(fileName string) (errorFormator *ErrorFormator, err error) {
-	err = Mkdir(filepath.Dir(fileName))
-	if err != nil {
-		return
-	}
-	f, err := os.Create(fileName)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	errorFormator = &ErrorFormator{
-		Filename: fileName,
-	}
-	return
-}
-
 type ErrMap struct {
 	BusinessCode string `json:"businessCode"`
 	Package      string `json:"package"`
@@ -41,8 +24,32 @@ type ErrMap struct {
 	Line         int    `json:"line"`
 }
 
+func New(fileName string) (errorFormator *ErrorFormator, err error) {
+	err = Mkdir(filepath.Dir(fileName))
+	if err != nil {
+		return
+	}
+	if !IsExist(fileName) { // check file permision
+		f, err := os.Create(fileName)
+		if err != nil {
+			return nil, err
+		}
+		f.Close()
+		fd, err := os.Open(fileName)
+		if err != nil {
+			return nil, err
+		}
+		fd.Close()
+	}
+
+	errorFormator = &ErrorFormator{
+		Filename: fileName,
+	}
+	return
+}
+
 //FormatError generate format error message
-func (errorFormator *ErrorFormator) FormatError(msg string, args ...int) (err error) {
+func (errorFormator *ErrorFormator) Format(msg string, args ...int) (err error) {
 	httpCode := 500
 	businessCode := "000000"
 	if len(args) >= 2 {
@@ -128,8 +135,8 @@ func Mkdir(filePath string) error {
 
 var defaultErrorFormator = &ErrorFormator{}
 
-//FormatError 格式化错误
-func FormatError(msg string, args ...int) (err error) {
-	err = defaultErrorFormator.FormatError(msg, args...)
+//Format format the error
+func Format(msg string, args ...int) (err error) {
+	err = defaultErrorFormator.Format(msg, args...)
 	return
 }

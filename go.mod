@@ -1,4 +1,4 @@
-module github.com/suifengpiao14/errorformater
+module github.com/suifengpiao14/errorformator
 
 go 1.16
 
