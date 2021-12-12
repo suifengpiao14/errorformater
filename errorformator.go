@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pkg/errors"
 	"github.com/sigurn/crc8"
 	"golang.org/x/mod/modfile"
 )
@@ -29,15 +28,13 @@ type ErrorFormator struct {
 	Skip              int                                                   `json:"skip"`
 	PackageNamePrefix string                                                `json:"packageName"`
 	GetFuncHttpStatus func(packageName string, funcName string) (int, bool) `json:"-"`
+	GetPCs            func(err error, pc []uintptr) (n int)                 `json:"-"`
 }
 type ErrMap struct {
 	BusinessCode string `json:"businessCode"`
 	Package      string `json:"package"`
 	FunctionName string `json:"functionName"`
 	Line         string `json:"line"`
-}
-type StackTracer interface {
-	StackTrace() errors.StackTrace
 }
 
 type BusinessCodeError struct {
@@ -108,6 +105,30 @@ func New(fileName string) (errorFormator *ErrorFormator, err error) {
 	return
 }
 
+func (errorFormator *ErrorFormator) Cause(err error) error {
+	targetErr := err
+	type causer interface {
+		Cause() error
+	}
+	for err != nil {
+		cause, ok := err.(causer)
+		if !ok {
+			break
+		}
+		err = cause.Cause()
+		if businessCode, ok := err.(*BusinessCodeError); ok {
+			targetErr = businessCode
+		} else if errorFormator.GetPCs != nil {
+			pcArr := make([]uintptr, 32)
+			n := errorFormator.GetPCs(err, pcArr)
+			if n > 0 {
+				targetErr = err
+			}
+		}
+	}
+	return targetErr
+}
+
 //FormatError generate format error message
 func (errorFormator *ErrorFormator) FormatMsg(msg string, args ...int) (err *BusinessCodeError) {
 	httpCode := 500
@@ -170,14 +191,8 @@ func (errorFormator *ErrorFormator) FormatError(err error) (newErr *BusinessCode
 	pcArr := make([]uintptr, 32) // at least 1 entry needed
 	var frames *runtime.Frames
 	n := 0
-	stackErr, ok := err.(StackTracer)
-	if ok {
-		stack := stackErr.StackTrace()
-		n = len(stack)
-		for i, frame := range stack {
-			pc := uintptr(frame) - 1
-			pcArr[i] = pc
-		}
+	if errorFormator.GetPCs != nil {
+		n = errorFormator.GetPCs(err, pcArr)
 	} else {
 		n = runtime.Callers(errorFormator.Skip, pcArr)
 
@@ -281,25 +296,6 @@ func Mkdir(filePath string) error {
 		return err
 	}
 	return nil
-}
-func Cause(err error) error {
-	targetErr := err
-	type causer interface {
-		Cause() error
-	}
-	for err != nil {
-		cause, ok := err.(causer)
-		if !ok {
-			break
-		}
-		err = cause.Cause()
-		if businessCode, ok := err.(*BusinessCodeError); ok {
-			targetErr = businessCode
-		} else if _, ok := err.(StackTracer); ok {
-			targetErr = err
-		}
-	}
-	return targetErr
 }
 
 var modPackageName, _ = GetModuleName(MOD_FILE_DEFAULT)
