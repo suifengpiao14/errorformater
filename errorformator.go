@@ -159,7 +159,9 @@ func (errorFormator *ErrorFormator) FormatMsg(msg string, args ...int) (err *Bus
 }
 
 func (errorFormator *ErrorFormator) FormatError(err error) (newErr *BusinessCodeError) {
-	err = errorFormator.Cause(err)
+	if errorFormator.Cause != nil {
+		err = errorFormator.Cause(err)
+	}
 	e, ok := err.(*BusinessCodeError)
 	if ok {
 		return e
