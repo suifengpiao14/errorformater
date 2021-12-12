@@ -1,9 +1,10 @@
 package errorformator
 
 import (
-	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/pkg/errors"
 )
 
 func TestFormatError(t *testing.T) {
@@ -19,13 +20,13 @@ func TestFormatErrorNew(t *testing.T) {
 		panic(err)
 	}
 	testErr := errors.New("test")
-	err = errorformator.Format(testErr.Error())
+	err = errorformator.FormatMsg(testErr.Error())
 	fmt.Println(err)
 }
 
 func Error2() (err error) {
 	msg := "error2"
-	err = Format(msg)
+	err = errors.New(msg)
 	return
 }
 
@@ -36,6 +37,6 @@ func TestError2(t *testing.T) {
 		panic(err)
 	}
 	testErr := Error2()
-	err = errorformator.Format(testErr.Error())
+	err = errorformator.FormatError(testErr)
 	fmt.Println(err)
 }
