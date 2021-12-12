@@ -161,6 +161,7 @@ func (errorFormator *ErrorFormator) FormatMsg(msg string, args ...int) (err *Bus
 }
 
 func (errorFormator *ErrorFormator) FormatError(err error) (newErr *BusinessCodeError) {
+	err = Cause(err)
 	e, ok := err.(*BusinessCodeError)
 	if ok {
 		return e
@@ -278,6 +279,24 @@ func Mkdir(filePath string) error {
 		return err
 	}
 	return nil
+}
+func Cause(err error) error {
+	targetErr := err
+	type causer interface {
+		Cause() error
+	}
+	for err != nil {
+		if businessCode, ok := err.(*BusinessCodeError); ok {
+			targetErr = businessCode
+		}
+		cause, ok := err.(causer)
+		if !ok {
+			break
+		}
+		err = cause.Cause()
+
+	}
+	return targetErr
 }
 
 var modPackageName, _ = GetModuleName(MOD_FILE_DEFAULT)
