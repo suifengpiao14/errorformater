@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/pkg/errors"
 	"github.com/sigurn/crc8"
 	"golang.org/x/mod/modfile"
 )
@@ -303,4 +304,54 @@ func GetModuleName(goModelfile string) (modName string, err error) {
 	}
 	modName = modfile.ModulePath(goModBytes)
 	return
+}
+
+type Causer interface {
+	Cause() error
+}
+
+func GithubComPkgErrorsFormator(fileName string) (errorFormator *ErrorFormator, err error) {
+	errorFormator, err = New(fileName)
+	errorFormator.GetPCs = GithubComPkgErrorsGetPCs
+	errorFormator.Cause = GithubComPkgErrorsCause
+	return
+}
+func GithubComPkgErrorsGetPCs(err error, pc []uintptr) (n int) {
+	type GithubComPkgErrorsStackTracer interface {
+		StackTrace() errors.StackTrace
+	}
+	n = 0
+	stackErr, ok := err.(GithubComPkgErrorsStackTracer)
+	if ok {
+		stack := stackErr.StackTrace()
+		n = len(stack)
+		for i, frame := range stack {
+			pc[i] = uintptr(frame) - 1
+		}
+	}
+	return n
+}
+
+func GithubComPkgErrorsCause(err error) error {
+	targetErr := err
+
+	for err != nil {
+		cause, ok := err.(Causer)
+		if !ok {
+			break
+		}
+		err = cause.Cause()
+		if err != nil {
+			if businessCode, ok := err.(*BusinessCodeError); ok {
+				targetErr = businessCode
+			} else {
+				pcArr := make([]uintptr, 32)
+				n := GithubComPkgErrorsGetPCs(err, pcArr)
+				if n > 0 {
+					targetErr = err
+				}
+			}
+		}
+	}
+	return targetErr
 }
