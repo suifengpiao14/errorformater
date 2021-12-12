@@ -40,6 +40,51 @@ type StackTracer interface {
 	StackTrace() errors.StackTrace
 }
 
+type BusinessCodeError struct {
+	HttpStatus   int    `json:"-"`
+	BusinessCode string `json:"code"`
+	Msg          string `json:"msg"`
+	Separator    byte   `json:"-"`
+	cause        error
+}
+
+var formatTpl = "%c%d:%s%c%s"
+
+func (e *BusinessCodeError) Error() string {
+
+	msg := fmt.Sprintf(formatTpl, e.Separator, e.HttpStatus, e.BusinessCode, e.Separator, e.Msg)
+	return msg
+}
+func (e *BusinessCodeError) Cause() error { return e.cause }
+
+// ParseMsg parse string to *BusinessCodeErr
+func (e *BusinessCodeError) ParseMsg(msg string) (ok bool) {
+	ok = false
+	if string(e.Separator) == "" {
+		e.Separator = SEPARATOR_DEFAULT
+	}
+	if msg[0] != byte(e.Separator) {
+		return
+	}
+	arr := strings.SplitN(msg, string(e.Separator), 3)
+	if len(arr) < 3 {
+		return
+	}
+	codeArr := strings.SplitN(arr[1], ":", 2)
+	if len(codeArr) < 2 {
+		return
+	}
+	httpCode, err := strconv.Atoi(codeArr[0])
+	if err != nil {
+		return
+	}
+	e.HttpStatus = httpCode
+	e.BusinessCode = codeArr[1]
+	e.Msg = arr[2]
+	ok = true
+	return
+}
+
 func New(fileName string) (errorFormator *ErrorFormator, err error) {
 	err = Mkdir(filepath.Dir(fileName))
 	if err != nil {
@@ -69,22 +114,30 @@ func New(fileName string) (errorFormator *ErrorFormator, err error) {
 }
 
 //FormatError generate format error message
-func (errorFormator *ErrorFormator) FormatMsg(msg string, args ...int) (err error) {
+func (errorFormator *ErrorFormator) FormatMsg(msg string, args ...int) (err *BusinessCodeError) {
 	httpCode := 500
 	businessCode := "000000000"
-	formatTpl := "%c%d:%s%c%s"
 	if len(args) >= 2 {
 		httpCode = args[0]
 		businessCode = strconv.Itoa(args[1])
-		err = fmt.Errorf(formatTpl, errorFormator.Separator, httpCode, businessCode, errorFormator.Separator, msg)
+		err = &BusinessCodeError{
+			HttpStatus:   httpCode,
+			BusinessCode: businessCode,
+			Msg:          msg,
+			Separator:    errorFormator.Separator,
+		}
 		return
 	}
 	if len(args) == 1 {
 		httpCode = args[0]
 	}
 	if !errorFormator.WithCallChain { // Detect whether it is in target format
-		if msg[0] == byte(errorFormator.Separator) {
-			return fmt.Errorf(msg)
+		e := &BusinessCodeError{
+			Separator: errorFormator.Separator,
+		}
+		ok := e.ParseMsg(msg)
+		if ok {
+			return e
 		}
 	}
 
@@ -101,11 +154,20 @@ func (errorFormator *ErrorFormator) FormatMsg(msg string, args ...int) (err erro
 		}
 		go errorFormator.updateMapFile(errMap)
 	}
-	err = fmt.Errorf(formatTpl, errorFormator.Separator, httpCode, businessCode, errorFormator.Separator, msg)
+	err = &BusinessCodeError{
+		HttpStatus:   httpCode,
+		BusinessCode: businessCode,
+		Msg:          msg,
+		Separator:    errorFormator.Separator,
+	}
 	return
 }
 
-func (errorFormator *ErrorFormator) FormatError(err error) (newErr error) {
+func (errorFormator *ErrorFormator) FormatError(err error) (newErr *BusinessCodeError) {
+	e, ok := err.(*BusinessCodeError)
+	if ok {
+		return e
+	}
 	httpCode := 500
 	pcArr := make([]uintptr, 32) // at least 1 entry needed
 	var frames *runtime.Frames
@@ -133,8 +195,13 @@ func (errorFormator *ErrorFormator) FormatError(err error) (newErr error) {
 		}
 		errorFormator.updateMapFile(errMap)
 	}
-	formatTpl := "%c%d:%s%c%w"
-	newErr = fmt.Errorf(formatTpl, errorFormator.Separator, httpCode, businessCode, errorFormator.Separator, err)
+	newErr = &BusinessCodeError{
+		HttpStatus:   httpCode,
+		BusinessCode: businessCode,
+		Msg:          err.Error(),
+		Separator:    errorFormator.Separator,
+		cause:        err,
+	}
 	return
 }
 
