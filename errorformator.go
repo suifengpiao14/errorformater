@@ -217,11 +217,6 @@ func (errorFormator *ErrorFormator) ParseFrames(frames *runtime.Frames) (busines
 		}
 		fullname = frame.Function
 		line = frame.Line
-		lastIndex := strings.LastIndex(fullname, ".")
-		probablyFuncName := fullname[lastIndex+1:]
-		if probablyFuncName == "func1" || probablyFuncName == "func2" || probablyFuncName == "func3" || probablyFuncName == "func4" || probablyFuncName == "func5" || probablyFuncName == "func6" {
-			fullname = fullname[:lastIndex]
-		}
 		if errorFormator.PackageNamePrefix == "" {
 			break
 		}
@@ -230,9 +225,11 @@ func (errorFormator *ErrorFormator) ParseFrames(frames *runtime.Frames) (busines
 			break
 		}
 	}
-	lastIndex := strings.LastIndex(fullname, ".")
-	packageName = fullname[:lastIndex]
-	funcName = fullname[lastIndex+1:]
+	lastSlashIndex := strings.LastIndex(fullname, "/")
+	basename := fullname[lastSlashIndex:]
+	firstDotIndex := lastSlashIndex + strings.Index(basename, ".")
+	packageName = fullname[:firstDotIndex]
+	funcName = fullname[firstDotIndex+1:]
 	table := crc8.MakeTable(crc8.CRC8)
 	packeCrc := crc8.Checksum([]byte(packageName), table)
 	funcCrc := crc8.Checksum([]byte(funcName), table)
@@ -291,15 +288,16 @@ func Cause(err error) error {
 		Cause() error
 	}
 	for err != nil {
-		if businessCode, ok := err.(*BusinessCodeError); ok {
-			targetErr = businessCode
-		}
 		cause, ok := err.(causer)
 		if !ok {
 			break
 		}
 		err = cause.Cause()
-
+		if businessCode, ok := err.(*BusinessCodeError); ok {
+			targetErr = businessCode
+		} else if _, ok := err.(StackTracer); ok {
+			targetErr = err
+		}
 	}
 	return targetErr
 }
