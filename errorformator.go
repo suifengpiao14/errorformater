@@ -217,6 +217,11 @@ func (errorFormator *ErrorFormator) ParseFrames(frames *runtime.Frames) (busines
 		}
 		fullname = frame.Function
 		line = frame.Line
+		lastIndex := strings.LastIndex(fullname, ".")
+		probablyFuncName := fullname[lastIndex+1:]
+		if probablyFuncName == "func1" || probablyFuncName == "func2" || probablyFuncName == "func3" || probablyFuncName == "func4" || probablyFuncName == "func5" || probablyFuncName == "func6" {
+			fullname = fullname[:lastIndex]
+		}
 		if errorFormator.PackageNamePrefix == "" {
 			break
 		}
