@@ -29,6 +29,7 @@ type ErrorFormator struct {
 	PackageNamePrefix string                                                `json:"packageName"`
 	GetFuncHttpStatus func(packageName string, funcName string) (int, bool) `json:"-"`
 	GetPCs            func(err error, pc []uintptr) (n int)                 `json:"-"`
+	Cause             func(err error) (tagetErr error)                      `json:"-"`
 }
 type ErrMap struct {
 	BusinessCode string `json:"businessCode"`
@@ -103,30 +104,6 @@ func New(fileName string) (errorFormator *ErrorFormator, err error) {
 		PackageNamePrefix: packageName,
 	}
 	return
-}
-
-func (errorFormator *ErrorFormator) Cause(err error) error {
-	targetErr := err
-	type causer interface {
-		Cause() error
-	}
-	for err != nil {
-		cause, ok := err.(causer)
-		if !ok {
-			break
-		}
-		err = cause.Cause()
-		if businessCode, ok := err.(*BusinessCodeError); ok {
-			targetErr = businessCode
-		} else if errorFormator.GetPCs != nil {
-			pcArr := make([]uintptr, 32)
-			n := errorFormator.GetPCs(err, pcArr)
-			if n > 0 {
-				targetErr = err
-			}
-		}
-	}
-	return targetErr
 }
 
 //FormatError generate format error message
