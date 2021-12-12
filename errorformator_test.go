@@ -40,3 +40,8 @@ func TestError2(t *testing.T) {
 	err = errorformator.FormatError(testErr)
 	fmt.Println(err)
 }
+
+func TestFmtErrorf(t *testing.T) {
+	err := fmt.Errorf("test")
+	fmt.Println("%w", err)
+}

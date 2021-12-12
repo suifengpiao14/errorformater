@@ -23,12 +23,12 @@ const (
 )
 
 type ErrorFormator struct {
-	Filename      string `json:"filename"`
-	mutex         sync.Mutex
-	Separator     byte   `json:"Separator"`
-	WithCallChain bool   `json:"withCallChain"`
-	Skip          int    `json:"skip"`
-	PackageName   string `json:"packageName"`
+	Filename                  string `json:"filename"`
+	mutex                     sync.Mutex
+	WithCallChain             bool                      `json:"withCallChain"`
+	Skip                      int                       `json:"skip"`
+	PackageNamePrefix         string                    `json:"packageName"`
+	ConvertPackage2HttpStatus func(string) (int, error) `json:"-"`
 }
 type ErrMap struct {
 	BusinessCode string `json:"businessCode"`
@@ -44,7 +44,6 @@ type BusinessCodeError struct {
 	HttpStatus   int    `json:"-"`
 	BusinessCode string `json:"code"`
 	Msg          string `json:"msg"`
-	Separator    byte   `json:"-"`
 	cause        error
 }
 
@@ -52,7 +51,7 @@ var formatTpl = "%c%d:%s%c%s"
 
 func (e *BusinessCodeError) Error() string {
 
-	msg := fmt.Sprintf(formatTpl, e.Separator, e.HttpStatus, e.BusinessCode, e.Separator, e.Msg)
+	msg := fmt.Sprintf(formatTpl, SEPARATOR_DEFAULT, e.HttpStatus, e.BusinessCode, SEPARATOR_DEFAULT, e.Msg)
 	return msg
 }
 func (e *BusinessCodeError) Cause() error { return e.cause }
@@ -60,13 +59,10 @@ func (e *BusinessCodeError) Cause() error { return e.cause }
 // ParseMsg parse string to *BusinessCodeErr
 func (e *BusinessCodeError) ParseMsg(msg string) (ok bool) {
 	ok = false
-	if string(e.Separator) == "" {
-		e.Separator = SEPARATOR_DEFAULT
-	}
-	if msg[0] != byte(e.Separator) {
+	if msg[0] != byte(SEPARATOR_DEFAULT) {
 		return
 	}
-	arr := strings.SplitN(msg, string(e.Separator), 3)
+	arr := strings.SplitN(msg, string(SEPARATOR_DEFAULT), 3)
 	if len(arr) < 3 {
 		return
 	}
@@ -104,11 +100,10 @@ func New(fileName string) (errorFormator *ErrorFormator, err error) {
 	}
 	packageName, _ := GetModuleName(MOD_FILE_DEFAULT)
 	errorFormator = &ErrorFormator{
-		Filename:      fileName,
-		Separator:     SEPARATOR_DEFAULT,
-		WithCallChain: WITH_CALL_CHAIN,
-		Skip:          SKIP_DEFAULT,
-		PackageName:   packageName,
+		Filename:          fileName,
+		WithCallChain:     WITH_CALL_CHAIN,
+		Skip:              SKIP_DEFAULT,
+		PackageNamePrefix: packageName,
 	}
 	return
 }
@@ -124,7 +119,6 @@ func (errorFormator *ErrorFormator) FormatMsg(msg string, args ...int) (err *Bus
 			HttpStatus:   httpCode,
 			BusinessCode: businessCode,
 			Msg:          msg,
-			Separator:    errorFormator.Separator,
 		}
 		return
 	}
@@ -132,9 +126,7 @@ func (errorFormator *ErrorFormator) FormatMsg(msg string, args ...int) (err *Bus
 		httpCode = args[0]
 	}
 	if !errorFormator.WithCallChain { // Detect whether it is in target format
-		e := &BusinessCodeError{
-			Separator: errorFormator.Separator,
-		}
+		e := &BusinessCodeError{}
 		ok := e.ParseMsg(msg)
 		if ok {
 			return e
@@ -144,7 +136,7 @@ func (errorFormator *ErrorFormator) FormatMsg(msg string, args ...int) (err *Bus
 	pcArr := make([]uintptr, 32) // at least 1 entry needed
 	n := runtime.Callers(errorFormator.Skip, pcArr)
 	frames := runtime.CallersFrames(pcArr[:n])
-	businessCode, funcName, line := errorFormator.ParseFrames(frames)
+	businessCode, packageName, funcName, line := errorFormator.ParseFrames(frames)
 	if errorFormator.Filename != "" {
 		errMap := &ErrMap{
 			BusinessCode: businessCode,
@@ -154,11 +146,16 @@ func (errorFormator *ErrorFormator) FormatMsg(msg string, args ...int) (err *Bus
 		}
 		go errorFormator.updateMapFile(errMap)
 	}
+	if errorFormator.ConvertPackage2HttpStatus != nil {
+		code, err := errorFormator.ConvertPackage2HttpStatus(packageName)
+		if err != nil {
+			httpCode = code
+		}
+	}
 	err = &BusinessCodeError{
 		HttpStatus:   httpCode,
 		BusinessCode: businessCode,
 		Msg:          msg,
-		Separator:    errorFormator.Separator,
 	}
 	return
 }
@@ -185,7 +182,7 @@ func (errorFormator *ErrorFormator) FormatError(err error) (newErr *BusinessCode
 
 	}
 	frames = runtime.CallersFrames(pcArr[:n])
-	businessCode, funcName, line := errorFormator.ParseFrames(frames)
+	businessCode, packageName, funcName, line := errorFormator.ParseFrames(frames)
 	if errorFormator.Filename != "" {
 		errMap := &ErrMap{
 			BusinessCode: businessCode,
@@ -195,17 +192,22 @@ func (errorFormator *ErrorFormator) FormatError(err error) (newErr *BusinessCode
 		}
 		errorFormator.updateMapFile(errMap)
 	}
+	if errorFormator.ConvertPackage2HttpStatus != nil {
+		code, err := errorFormator.ConvertPackage2HttpStatus(packageName)
+		if err != nil {
+			httpCode = code
+		}
+	}
 	newErr = &BusinessCodeError{
 		HttpStatus:   httpCode,
 		BusinessCode: businessCode,
 		Msg:          err.Error(),
-		Separator:    errorFormator.Separator,
 		cause:        err,
 	}
 	return
 }
 
-func (errorFormator *ErrorFormator) ParseFrames(frames *runtime.Frames) (businessCode string, funcName string, line int) {
+func (errorFormator *ErrorFormator) ParseFrames(frames *runtime.Frames) (businessCode string, packageName string, funcName string, line int) {
 	fullname := ""
 	for {
 		frame, hasNext := frames.Next()
@@ -214,16 +216,16 @@ func (errorFormator *ErrorFormator) ParseFrames(frames *runtime.Frames) (busines
 		}
 		fullname = frame.Function
 		line = frame.Line
-		if errorFormator.PackageName == "" {
+		if errorFormator.PackageNamePrefix == "" {
 			break
 		}
 		// Find first information of interest
-		if strings.Contains(fullname, errorFormator.PackageName) {
+		if strings.Contains(fullname, errorFormator.PackageNamePrefix) {
 			break
 		}
 	}
 	lastIndex := strings.LastIndex(fullname, ".")
-	packageName := fullname[:lastIndex]
+	packageName = fullname[:lastIndex]
 	funcName = fullname[lastIndex+1:]
 	table := crc8.MakeTable(crc8.CRC8)
 	packeCrc := crc8.Checksum([]byte(packageName), table)
@@ -278,12 +280,11 @@ func Mkdir(filePath string) error {
 	return nil
 }
 
-var packageName, _ = GetModuleName(MOD_FILE_DEFAULT)
+var modPackageName, _ = GetModuleName(MOD_FILE_DEFAULT)
 var defaultErrorFormator = &ErrorFormator{
-	Separator:     SEPARATOR_DEFAULT,
-	WithCallChain: WITH_CALL_CHAIN,
-	Skip:          3,
-	PackageName:   packageName,
+	WithCallChain:     WITH_CALL_CHAIN,
+	Skip:              3,
+	PackageNamePrefix: modPackageName,
 }
 
 //Format format the error
