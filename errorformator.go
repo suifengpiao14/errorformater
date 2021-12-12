@@ -23,12 +23,12 @@ const (
 )
 
 type ErrorFormator struct {
-	Filename                  string `json:"filename"`
-	mutex                     sync.Mutex
-	WithCallChain             bool                     `json:"withCallChain"`
-	Skip                      int                      `json:"skip"`
-	PackageNamePrefix         string                   `json:"packageName"`
-	ConvertPackage2HttpStatus func(string) (int, bool) `json:"-"`
+	Filename          string `json:"filename"`
+	mutex             sync.Mutex
+	WithCallChain     bool                                                  `json:"withCallChain"`
+	Skip              int                                                   `json:"skip"`
+	PackageNamePrefix string                                                `json:"packageName"`
+	GetFuncHttpStatus func(packageName string, funcName string) (int, bool) `json:"-"`
 }
 type ErrMap struct {
 	BusinessCode string `json:"businessCode"`
@@ -146,8 +146,8 @@ func (errorFormator *ErrorFormator) FormatMsg(msg string, args ...int) (err *Bus
 		}
 		go errorFormator.updateMapFile(errMap)
 	}
-	if errorFormator.ConvertPackage2HttpStatus != nil {
-		code, ok := errorFormator.ConvertPackage2HttpStatus(packageName)
+	if errorFormator.GetFuncHttpStatus != nil {
+		code, ok := errorFormator.GetFuncHttpStatus(packageName, funcName)
 		if ok {
 			httpCode = code
 		}
@@ -192,8 +192,8 @@ func (errorFormator *ErrorFormator) FormatError(err error) (newErr *BusinessCode
 		}
 		errorFormator.updateMapFile(errMap)
 	}
-	if errorFormator.ConvertPackage2HttpStatus != nil {
-		code, ok := errorFormator.ConvertPackage2HttpStatus(packageName)
+	if errorFormator.GetFuncHttpStatus != nil {
+		code, ok := errorFormator.GetFuncHttpStatus(packageName, funcName)
 		if ok {
 			httpCode = code
 		}
