@@ -312,6 +312,9 @@ type Causer interface {
 
 func GithubComPkgErrorsFormator(fileName string) (errorFormator *ErrorFormator, err error) {
 	errorFormator, err = New(fileName)
+	if err != nil {
+		return nil, err
+	}
 	errorFormator.GetPCs = GithubComPkgErrorsGetPCs
 	errorFormator.Cause = GithubComPkgErrorsCause
 	return
