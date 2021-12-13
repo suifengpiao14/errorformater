@@ -22,7 +22,7 @@ func Error2() (err error) {
 
 func TestError2(t *testing.T) {
 	g := &GithubComPkgErrors{}
-	ch := make(chan *ErrorInfo, 10)
+	ch := make(chan *CodeInfo, 10)
 	formatter := New("errorformatter", false, ch, nil, g.PCs, g.Cause)
 	testErr := Error2()
 	err := formatter.Error(testErr)

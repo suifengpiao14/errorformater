@@ -22,24 +22,26 @@ const (
 type Formatter struct {
 	Keyword    string
 	CallChain  bool
-	Channel    chan<- *ErrorInfo
+	Channel    chan<- *CodeInfo
 	HttpStatus func(packageName string, funcName string) (int, bool)
 	PCs        func(err error, pc []uintptr) (n int)
 	Cause      func(err error) (tagetErr error)
 }
 
-type ErrorInfo struct {
-	Code     string `json:"code"`
-	Package  string `json:"package"`
-	Function string `json:"function"`
-	Line     string `json:"line"`
+type CodeInfo struct {
+	Code     string    `json:"code"`
+	Package  string    `json:"package"`
+	Function string    `json:"function"`
+	Line     string    `json:"line"`
+	Msg      string    `json:"msg"`
+	Cause    *CodeInfo `json:"cause"`
 }
 
 type ErrorCode struct {
 	HttpStatus int    `json:"-"`
 	Code       string `json:"code"`
 	Msg        string `json:"msg"`
-	cause      error
+	cause      error  `json:"-"`
 }
 
 func (e *ErrorCode) Error() string {
@@ -49,7 +51,7 @@ func (e *ErrorCode) Error() string {
 }
 func (e *ErrorCode) Cause() error { return e.cause }
 
-// ParseMsg parse string to *BusinessCode
+//ParseMsg parse string to *ErrorCode
 func (e *ErrorCode) ParseMsg(msg string) (ok bool) {
 	ok = false
 	if msg[0] != byte(SEPARATOR) {
@@ -77,7 +79,7 @@ func (e *ErrorCode) ParseMsg(msg string) (ok bool) {
 func New(
 	Keyword string,
 	callChain bool,
-	ch chan<- *ErrorInfo,
+	ch chan<- *CodeInfo,
 	httpStatus func(packageName string, funcName string) (int, bool),
 	pcs func(err error, pc []uintptr) (n int),
 	cause func(err error) (tagetErr error),
@@ -93,7 +95,7 @@ func New(
 	return
 }
 
-//FormatError generate format error message
+//Msg generate *ErrorCode from msg
 func (formatter *Formatter) Msg(msg string, args ...int) (err *ErrorCode) {
 	httpStatus := 500
 	code := "000000000"
@@ -121,28 +123,24 @@ func (formatter *Formatter) Msg(msg string, args ...int) (err *ErrorCode) {
 	pcArr := make([]uintptr, 32) // at least 1 entry needed
 	n := runtime.Callers(SKIP, pcArr)
 	frames := runtime.CallersFrames(pcArr[:n])
-	code, packageName, funcName, line := formatter.Frames(frames)
-	errMap := &ErrorInfo{
-		Code:     code,
-		Package:  packageName,
-		Function: funcName,
-		Line:     strconv.Itoa(line),
-	}
-	formatter.sendToChannel(errMap)
+	codeInfo := formatter.Frames(frames, formatter.CallChain)
+	codeInfo.Msg = msg
+	formatter.sendToChannel(codeInfo)
 	if formatter.HttpStatus != nil {
-		code, ok := formatter.HttpStatus(packageName, funcName)
+		tmpHttpStatus, ok := formatter.HttpStatus(codeInfo.Package, codeInfo.Function)
 		if ok {
-			httpStatus = code
+			httpStatus = tmpHttpStatus
 		}
 	}
 	err = &ErrorCode{
 		HttpStatus: httpStatus,
-		Code:       code,
+		Code:       codeInfo.Code,
 		Msg:        msg,
 	}
 	return
 }
 
+//Error generate *ErrorCode from error
 func (formatter *Formatter) Error(err error) (newErr *ErrorCode) {
 	if formatter.Cause != nil {
 		err = formatter.Cause(err)
@@ -162,60 +160,75 @@ func (formatter *Formatter) Error(err error) (newErr *ErrorCode) {
 
 	}
 	frames = runtime.CallersFrames(pcArr[:n])
-	code, packageName, funcName, line := formatter.Frames(frames)
-	errMap := &ErrorInfo{
-		Code:     code,
-		Package:  packageName,
-		Function: funcName,
-		Line:     strconv.Itoa(line),
-	}
-	formatter.sendToChannel(errMap)
+	codeInfo := formatter.Frames(frames, formatter.CallChain)
+	msg := err.Error()
+	codeInfo.Msg = msg
+	formatter.sendToChannel(codeInfo)
 	if formatter.HttpStatus != nil {
-		code, ok := formatter.HttpStatus(packageName, funcName)
+		tmpHttpStatus, ok := formatter.HttpStatus(codeInfo.Package, codeInfo.Function)
 		if ok {
-			httpStatus = code
+			httpStatus = tmpHttpStatus
 		}
 	}
 	newErr = &ErrorCode{
 		HttpStatus: httpStatus,
-		Code:       code,
-		Msg:        err.Error(),
+		Code:       codeInfo.Code,
+		Msg:        msg,
 		cause:      err,
 	}
 	return
 }
 
-func (formatter *Formatter) Frames(frames *runtime.Frames) (code string, packageName string, funcName string, line int) {
-	fullname := ""
+// Frames generate *CodeInfo from frames
+func (formatter *Formatter) Frames(frames *runtime.Frames, callChain bool) (codeInfo *CodeInfo) {
+	root := &CodeInfo{}
+	point := root
 	for {
 		frame, hasNext := frames.Next()
 		if !hasNext {
 			break
 		}
-		fullname = frame.Function
-		line = frame.Line
+		fullname := frame.Function
+		line := frame.Line
 		if formatter.Keyword == "" {
+			point.Cause = formatter.FuncName2CodeInfo(fullname, line)
 			break
 		}
 		// Find first information of interest
 		if strings.Contains(fullname, formatter.Keyword) {
-			break
+			point.Cause = formatter.FuncName2CodeInfo(fullname, line)
+			point = point.Cause
+			if !callChain {
+				break
+			}
 		}
 	}
-	lastSlashIndex := strings.LastIndex(fullname, "/")
-	basename := fullname[lastSlashIndex:]
-	firstDotIndex := lastSlashIndex + strings.Index(basename, ".")
-	packageName = fullname[:firstDotIndex]
-	funcName = fullname[firstDotIndex+1:]
-	table := crc8.MakeTable(crc8.CRC8)
-	packeCrc := crc8.Checksum([]byte(packageName), table)
-	funcCrc := crc8.Checksum([]byte(funcName), table)
-	code = fmt.Sprintf("%03d%03d%03d", packeCrc, funcCrc, line)
+	codeInfo = root.Cause
 	return
 }
 
-//sendToChannel 发送数据到通道
-func (formatter *Formatter) sendToChannel(errMap *ErrorInfo) {
+//FuncName2CodeInfo generate *CodeInfo from full function name
+func (formatter *Formatter) FuncName2CodeInfo(fullFuncName string, line int) (codeInfo *CodeInfo) {
+	lastSlashIndex := strings.LastIndex(fullFuncName, "/")
+	basename := fullFuncName[lastSlashIndex:]
+	firstDotIndex := lastSlashIndex + strings.Index(basename, ".")
+	packageName := fullFuncName[:firstDotIndex]
+	funcName := fullFuncName[firstDotIndex+1:]
+	table := crc8.MakeTable(crc8.CRC8)
+	packeCrc := crc8.Checksum([]byte(packageName), table)
+	funcCrc := crc8.Checksum([]byte(funcName), table)
+	code := fmt.Sprintf("%03d%03d%03d", packeCrc, funcCrc, line)
+	codeInfo = &CodeInfo{
+		Code:     code,
+		Package:  packageName,
+		Function: funcName,
+		Line:     strconv.Itoa(line),
+	}
+	return
+}
+
+//sendToChannel send *codeInfo to channel
+func (formatter *Formatter) sendToChannel(errMap *CodeInfo) {
 	if formatter.Channel != nil {
 		select {
 		case formatter.Channel <- errMap:
@@ -226,8 +239,8 @@ func (formatter *Formatter) sendToChannel(errMap *ErrorInfo) {
 	}
 }
 
-//GetModuleName get mod package name from go.mod
-func GetModuleName(goModelfile string) (modName string, err error) {
+//ModuleName help function, get mod package name from go.mod
+func ModuleName(goModelfile string) (modName string, err error) {
 	goModBytes, err := os.ReadFile(goModelfile)
 	if err != nil {
 		return
@@ -240,8 +253,10 @@ type Causer interface {
 	Cause() error
 }
 
+//GithubComPkgErrors github.com/pkg/errors package implementation
 type GithubComPkgErrors struct{}
 
+//PCs implementation (*Formatter).PCs function
 func (pkgErrors *GithubComPkgErrors) PCs(err error, pc []uintptr) (n int) {
 	type GithubComPkgErrorsStackTracer interface {
 		StackTrace() errors.StackTrace
@@ -258,6 +273,7 @@ func (pkgErrors *GithubComPkgErrors) PCs(err error, pc []uintptr) (n int) {
 	return n
 }
 
+//Cause implementation (*Formatter).Cause function
 func (pkgErrors *GithubComPkgErrors) Cause(err error) error {
 	targetErr := err
 
