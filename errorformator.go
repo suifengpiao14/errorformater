@@ -1,14 +1,11 @@
 package errorformator
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/sigurn/crc8"
@@ -23,14 +20,13 @@ const (
 )
 
 type ErrorFormator struct {
-	Filename          string `json:"filename"`
-	mutex             sync.Mutex
 	WithCallChain     bool                                                  `json:"withCallChain"`
 	Skip              int                                                   `json:"skip"`
 	PackageNamePrefix string                                                `json:"packageName"`
 	GetFuncHttpStatus func(packageName string, funcName string) (int, bool) `json:"-"`
 	GetPCs            func(err error, pc []uintptr) (n int)                 `json:"-"`
 	Cause             func(err error) (tagetErr error)                      `json:"-"`
+	Channel           chan<- *ErrMap                                        `json:"-"`
 }
 type ErrMap struct {
 	BusinessCode string `json:"businessCode"`
@@ -80,26 +76,9 @@ func (e *BusinessCodeError) ParseMsg(msg string) (ok bool) {
 	return
 }
 
-func New(fileName string) (errorFormator *ErrorFormator, err error) {
-	err = Mkdir(filepath.Dir(fileName))
-	if err != nil {
-		return
-	}
-	if !IsExist(fileName) { // check file permision
-		f, err := os.Create(fileName)
-		if err != nil {
-			return nil, err
-		}
-		f.Close()
-		fd, err := os.Open(fileName)
-		if err != nil {
-			return nil, err
-		}
-		fd.Close()
-	}
+func New() (errorFormator *ErrorFormator, err error) {
 	packageName, _ := GetModuleName(MOD_FILE_DEFAULT)
 	errorFormator = &ErrorFormator{
-		Filename:          fileName,
 		WithCallChain:     WITH_CALL_CHAIN,
 		Skip:              SKIP_DEFAULT,
 		PackageNamePrefix: packageName,
@@ -136,15 +115,13 @@ func (errorFormator *ErrorFormator) FormatMsg(msg string, args ...int) (err *Bus
 	n := runtime.Callers(errorFormator.Skip, pcArr)
 	frames := runtime.CallersFrames(pcArr[:n])
 	businessCode, packageName, funcName, line := errorFormator.ParseFrames(frames)
-	if errorFormator.Filename != "" {
-		errMap := &ErrMap{
-			BusinessCode: businessCode,
-			Package:      packageName,
-			FunctionName: funcName,
-			Line:         strconv.Itoa(line),
-		}
-		go errorFormator.updateMapFile(errMap)
+	errMap := &ErrMap{
+		BusinessCode: businessCode,
+		Package:      packageName,
+		FunctionName: funcName,
+		Line:         strconv.Itoa(line),
 	}
+	errorFormator.Channel <- errMap
 	if errorFormator.GetFuncHttpStatus != nil {
 		code, ok := errorFormator.GetFuncHttpStatus(packageName, funcName)
 		if ok {
@@ -179,15 +156,13 @@ func (errorFormator *ErrorFormator) FormatError(err error) (newErr *BusinessCode
 	}
 	frames = runtime.CallersFrames(pcArr[:n])
 	businessCode, packageName, funcName, line := errorFormator.ParseFrames(frames)
-	if errorFormator.Filename != "" {
-		errMap := &ErrMap{
-			BusinessCode: businessCode,
-			Package:      packageName,
-			FunctionName: funcName,
-			Line:         strconv.Itoa(line),
-		}
-		errorFormator.updateMapFile(errMap)
+	errMap := &ErrMap{
+		BusinessCode: businessCode,
+		Package:      packageName,
+		FunctionName: funcName,
+		Line:         strconv.Itoa(line),
 	}
+	errorFormator.SendToChannel(errMap)
 	if errorFormator.GetFuncHttpStatus != nil {
 		code, ok := errorFormator.GetFuncHttpStatus(packageName, funcName)
 		if ok {
@@ -201,6 +176,13 @@ func (errorFormator *ErrorFormator) FormatError(err error) (newErr *BusinessCode
 		cause:        err,
 	}
 	return
+}
+
+//SendToChannel 发送数据到通道
+func (errorFormator *ErrorFormator) SendToChannel(errMap *ErrMap) {
+	if errorFormator.Channel != nil {
+		errorFormator.Channel <- errMap
+	}
 }
 
 func (errorFormator *ErrorFormator) ParseFrames(frames *runtime.Frames) (businessCode string, packageName string, funcName string, line int) {
@@ -230,52 +212,6 @@ func (errorFormator *ErrorFormator) ParseFrames(frames *runtime.Frames) (busines
 	funcCrc := crc8.Checksum([]byte(funcName), table)
 	businessCode = fmt.Sprintf("%03d%03d%03d", packeCrc, funcCrc, line)
 	return
-}
-
-func (errorFormator *ErrorFormator) updateMapFile(errMap *ErrMap) (err error) {
-	errorFormator.mutex.Lock()
-	defer errorFormator.mutex.Unlock()
-	b, err := os.ReadFile(errorFormator.Filename)
-	if err != nil {
-		return
-	}
-	errMapTable := map[string]*ErrMap{}
-	if len(b) > 0 {
-		err = json.Unmarshal(b, &errMapTable)
-		if err != nil {
-			return
-		}
-	}
-
-	_, ok := errMapTable[errMap.BusinessCode]
-	if ok {
-		return
-	}
-	errMapTable[errMap.BusinessCode] = errMap
-	jsonByte, err := json.Marshal(errMapTable)
-	if err != nil {
-		return
-	}
-	err = os.WriteFile(errorFormator.Filename, jsonByte, os.ModePerm)
-	if err != nil {
-		return
-	}
-	return
-}
-
-func IsExist(path string) bool {
-	_, err := os.Stat(path)
-	if err != nil {
-		return os.IsExist(err)
-	}
-	return true
-}
-func Mkdir(filePath string) error {
-	if !IsExist(filePath) {
-		err := os.MkdirAll(filePath, os.ModePerm)
-		return err
-	}
-	return nil
 }
 
 var modPackageName, _ = GetModuleName(MOD_FILE_DEFAULT)
@@ -310,8 +246,8 @@ type Causer interface {
 	Cause() error
 }
 
-func GithubComPkgErrorsFormator(fileName string) (errorFormator *ErrorFormator, err error) {
-	errorFormator, err = New(fileName)
+func GithubComPkgErrorsFormator() (errorFormator *ErrorFormator, err error) {
+	errorFormator, err = New()
 	if err != nil {
 		return nil, err
 	}
