@@ -34,7 +34,7 @@ type CodeInfo struct {
 	Function string    `json:"function"`
 	Line     string    `json:"line"`
 	Msg      string    `json:"msg"`
-	Cause    *CodeInfo `json:"cause"`
+	Cause    *CodeInfo `json:"-"`
 }
 
 type ErrorCode struct {
