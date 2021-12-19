@@ -8,6 +8,7 @@ import (
 
 // ErrorChain 链式调用
 type ErrorChain interface {
+	Run(fn func() error) ErrorChain
 	SetError(err error) ErrorChain
 	Error() error
 }
@@ -28,7 +29,7 @@ func (c *chain) Error() error {
 
 // SetError sets the error
 func (c *chain) SetError(err error) ErrorChain {
-	if c.err != nil {
+	if err == nil || c.err != nil {
 		return c
 	}
 	_, ok := err.(GithubComPkgErrorsStackTracer)
@@ -36,6 +37,14 @@ func (c *chain) SetError(err error) ErrorChain {
 		err = errors.WithStack(err)
 	}
 	c.err = err
+	return c
+}
+func (c *chain) Run(fn func() error) ErrorChain {
+	if c.err != nil {
+		return c
+	}
+	err := fn()
+	c.SetError(err)
 	return c
 }
 
