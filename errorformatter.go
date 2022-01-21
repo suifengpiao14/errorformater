@@ -256,12 +256,13 @@ type Causer interface {
 
 //GithubComPkgErrors github.com/pkg/errors package implementation
 type GithubComPkgErrors struct{}
+type GithubComPkgErrorsStackTracer interface {
+	StackTrace() errors.StackTrace
+}
 
 //PCs implementation (*Formatter).PCs function
 func (pkgErrors *GithubComPkgErrors) PCs(err error, pc []uintptr) (n int) {
-	type GithubComPkgErrorsStackTracer interface {
-		StackTrace() errors.StackTrace
-	}
+
 	n = 0
 	stackErr, ok := err.(GithubComPkgErrorsStackTracer)
 	if ok {
