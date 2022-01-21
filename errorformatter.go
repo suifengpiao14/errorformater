@@ -183,25 +183,23 @@ func (formatter *Formatter) Error(err error) (newErr *ErrorCode) {
 func (formatter *Formatter) Frames(frames *runtime.Frames, callChain bool) (codeInfo *CodeInfo) {
 	root := &CodeInfo{}
 	point := root
+	codeInfo = root
 	for {
 		frame, hasNext := frames.Next()
-		if !hasNext {
-			break
-		}
 		fullname := frame.Function
 		line := frame.Line
+		point.Cause = formatter.FuncName2CodeInfo(fullname, line)
 		if formatter.Keyword == "" {
-			point.Cause = formatter.FuncName2CodeInfo(fullname, line)
 			break
 		}
 		// Find first information of interest
-		if strings.Contains(fullname, formatter.Keyword) {
-			point.Cause = formatter.FuncName2CodeInfo(fullname, line)
-			point = point.Cause
-			if !callChain {
-				break
-			}
+		if strings.Contains(fullname, formatter.Keyword) && !callChain {
+			break
 		}
+		if !hasNext {
+			break
+		}
+		point = point.Cause
 	}
 	codeInfo = root.Cause
 	return
@@ -209,6 +207,9 @@ func (formatter *Formatter) Frames(frames *runtime.Frames, callChain bool) (code
 
 //FuncName2CodeInfo generate *CodeInfo from full function name
 func (formatter *Formatter) FuncName2CodeInfo(fullFuncName string, line int) (codeInfo *CodeInfo) {
+	if fullFuncName == "" {
+		return &CodeInfo{}
+	}
 	lastSlashIndex := strings.LastIndex(fullFuncName, "/")
 	basename := fullFuncName[lastSlashIndex:]
 	firstDotIndex := lastSlashIndex + strings.Index(basename, ".")
