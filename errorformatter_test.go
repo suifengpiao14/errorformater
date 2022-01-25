@@ -8,7 +8,9 @@ import (
 )
 
 func TestFormatError(t *testing.T) {
-	formatter := New("", false, nil, nil, nil, nil)
+	include := []string{}
+	exclude := []string{}
+	formatter := New(include, exclude, nil, nil, nil, nil)
 	testErr := errors.New("test")
 	err := formatter.Msg(testErr.Error())
 	fmt.Println(err)
@@ -23,7 +25,9 @@ func Error2() (err error) {
 func TestError2(t *testing.T) {
 	g := &GithubComPkgErrors{}
 	ch := make(chan *CodeInfo, 10)
-	formatter := New("errorformatter", false, ch, nil, g.PCs, g.Cause)
+	include := []string{"errorformatter"}
+	exclude := []string{}
+	formatter := New(include, exclude, ch, nil, g.PCs, g.Cause)
 	testErr := Error2()
 	err := formatter.Error(testErr)
 	errorInfo := <-ch
