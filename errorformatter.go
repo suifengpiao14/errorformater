@@ -20,8 +20,8 @@ const (
 )
 
 type Formatter struct {
-	Keyword    string
-	CallChain  bool
+	Include    []string
+	Exclude    []string
 	Channel    chan<- *CodeInfo
 	HttpStatus func(packageName string, funcName string) (int, bool)
 	PCs        func(err error, pc []uintptr) (n int)
@@ -34,7 +34,7 @@ type CodeInfo struct {
 	Function string    `json:"function"`
 	Line     string    `json:"line"`
 	Msg      string    `json:"msg"`
-	Cause    *CodeInfo `json:"-"`
+	Cause    *CodeInfo `json:"cause"`
 }
 
 type ErrorCode struct {
@@ -77,16 +77,16 @@ func (e *ErrorCode) ParseMsg(msg string) (ok bool) {
 }
 
 func New(
-	Keyword string,
-	callChain bool,
+	include []string,
+	exclude []string,
 	ch chan<- *CodeInfo,
 	httpStatus func(packageName string, funcName string) (int, bool),
 	pcs func(err error, pc []uintptr) (n int),
 	cause func(err error) (tagetErr error),
 ) (formatter *Formatter) {
 	formatter = &Formatter{
-		Keyword:    Keyword,
-		CallChain:  callChain,
+		Include:    include,
+		Exclude:    exclude,
 		Channel:    ch,
 		HttpStatus: httpStatus,
 		PCs:        pcs,
@@ -112,18 +112,10 @@ func (formatter *Formatter) Msg(msg string, args ...int) (err *ErrorCode) {
 	if len(args) == 1 {
 		httpStatus = args[0]
 	}
-	if !formatter.CallChain { // Detect whether it is in target format
-		e := &ErrorCode{}
-		ok := e.ParseMsg(msg)
-		if ok {
-			return e
-		}
-	}
-
 	pcArr := make([]uintptr, 32) // at least 1 entry needed
 	n := runtime.Callers(SKIP, pcArr)
 	frames := runtime.CallersFrames(pcArr[:n])
-	codeInfo := formatter.Frames(frames, formatter.CallChain)
+	codeInfo := formatter.Frames(frames)
 	codeInfo.Msg = msg
 	formatter.sendToChannel(codeInfo)
 	if formatter.HttpStatus != nil {
@@ -160,7 +152,7 @@ func (formatter *Formatter) Error(err error) (newErr *ErrorCode) {
 
 	}
 	frames = runtime.CallersFrames(pcArr[:n])
-	codeInfo := formatter.Frames(frames, formatter.CallChain)
+	codeInfo := formatter.Frames(frames)
 	msg := err.Error()
 	codeInfo.Msg = msg
 	formatter.sendToChannel(codeInfo)
@@ -180,28 +172,76 @@ func (formatter *Formatter) Error(err error) (newErr *ErrorCode) {
 }
 
 // Frames generate *CodeInfo from frames
-func (formatter *Formatter) Frames(frames *runtime.Frames, callChain bool) (codeInfo *CodeInfo) {
+func (formatter *Formatter) Frames(frames *runtime.Frames) (codeInfo *CodeInfo) {
 	root := &CodeInfo{}
 	point := root
 	codeInfo = root
+	codeArr := make([]string, 0)
+	msgArr := make([]string, 0)
 	for {
 		frame, hasNext := frames.Next()
 		fullname := frame.Function
 		line := frame.Line
+		if point.Code != "" {
+			codeArr = append(codeArr, point.Code)
+		}
+		if point.Msg != "" {
+			msgArr = append(msgArr, point.Msg)
+		}
+
+		if len(formatter.Include) > 0 { //Include 中匹配任意规则即可
+			any := false
+			for _, keyword := range formatter.Include {
+				any = strings.Contains(fullname, keyword)
+				if any {
+					break
+				}
+			}
+			if !any {
+				if hasNext {
+					continue
+				} else {
+					break
+				}
+			}
+		}
+
+		if len(formatter.Exclude) > 0 { //Exclude 中匹配任意规则即排除
+			any := false
+			for _, keyword := range formatter.Exclude {
+				any = strings.Contains(fullname, keyword)
+				if any {
+					break
+				}
+			}
+			if any {
+				if hasNext {
+					continue
+				} else {
+					break
+				}
+			}
+		}
 		point.Cause = formatter.FuncName2CodeInfo(fullname, line)
-		if formatter.Keyword == "" {
-			break
-		}
-		// Find first information of interest
-		if strings.Contains(fullname, formatter.Keyword) && !callChain {
-			break
-		}
-		if !hasNext {
-			break
-		}
 		point = point.Cause
+
 	}
-	codeInfo = root.Cause
+	// msgArr、codeArr 第一个为root的，全部为空，没有意义
+	root.Msg = strings.Join(msgArr, ":")
+	switch len(codeArr) {
+	case 0:
+		root.Code = "000000000"
+	case 1:
+		root.Code = codeArr[0]
+	default:
+		firstCode := codeArr[0]
+		restCode := codeArr[1:]
+		restCodeStr := strings.Join(restCode, ":")
+		table := crc8.MakeTable(crc8.CRC8)
+		codePrefix := crc8.Checksum([]byte(restCodeStr), table)
+		root.Code = fmt.Sprintf("%3d%s", codePrefix, firstCode[3:])
+	}
+	codeInfo = root
 	return
 }
 
@@ -211,7 +251,10 @@ func (formatter *Formatter) FuncName2CodeInfo(fullFuncName string, line int) (co
 		return &CodeInfo{}
 	}
 	lastSlashIndex := strings.LastIndex(fullFuncName, "/")
-	basename := fullFuncName[lastSlashIndex:]
+	basename := fullFuncName
+	if lastSlashIndex > -1 {
+		basename = fullFuncName[lastSlashIndex:]
+	}
 	firstDotIndex := lastSlashIndex + strings.Index(basename, ".")
 	packageName := fullFuncName[:firstDotIndex]
 	funcName := fullFuncName[firstDotIndex+1:]
