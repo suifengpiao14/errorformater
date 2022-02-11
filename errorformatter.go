@@ -22,7 +22,6 @@ const (
 type Formatter struct {
 	Include    []string
 	Exclude    []string
-	Channel    chan<- *CodeInfo
 	HttpStatus func(packageName string, funcName string) (int, bool)
 	PCs        func(err error, pc []uintptr) (n int)
 	Cause      func(err error) (tagetErr error)
@@ -42,6 +41,7 @@ type ErrorCode struct {
 	Code       string `json:"code"`
 	Msg        string `json:"msg"`
 	cause      error  `json:"-"`
+	CodeInfo   *CodeInfo
 }
 
 func (e *ErrorCode) Error() string {
@@ -79,7 +79,6 @@ func (e *ErrorCode) ParseMsg(msg string) (ok bool) {
 func New(
 	include []string,
 	exclude []string,
-	ch chan<- *CodeInfo,
 	httpStatus func(packageName string, funcName string) (int, bool),
 	pcs func(err error, pc []uintptr) (n int),
 	cause func(err error) (tagetErr error),
@@ -87,7 +86,6 @@ func New(
 	formatter = &Formatter{
 		Include:    include,
 		Exclude:    exclude,
-		Channel:    ch,
 		HttpStatus: httpStatus,
 		PCs:        pcs,
 		Cause:      cause,
@@ -117,7 +115,6 @@ func (formatter *Formatter) Msg(msg string, args ...int) (err *ErrorCode) {
 	frames := runtime.CallersFrames(pcArr[:n])
 	codeInfo := formatter.Frames(frames)
 	codeInfo.Msg = msg
-	formatter.sendToChannel(codeInfo)
 	if formatter.HttpStatus != nil {
 		tmpHttpStatus, ok := formatter.HttpStatus(codeInfo.Package, codeInfo.Function)
 		if ok {
@@ -128,6 +125,7 @@ func (formatter *Formatter) Msg(msg string, args ...int) (err *ErrorCode) {
 		HttpStatus: httpStatus,
 		Code:       codeInfo.Code,
 		Msg:        msg,
+		CodeInfo:   codeInfo,
 	}
 	return
 }
@@ -155,7 +153,6 @@ func (formatter *Formatter) Error(err error) (newErr *ErrorCode) {
 	codeInfo := formatter.Frames(frames)
 	msg := err.Error()
 	codeInfo.Msg = msg
-	formatter.sendToChannel(codeInfo)
 	if formatter.HttpStatus != nil {
 		tmpHttpStatus, ok := formatter.HttpStatus(codeInfo.Package, codeInfo.Function)
 		if ok {
@@ -167,6 +164,7 @@ func (formatter *Formatter) Error(err error) (newErr *ErrorCode) {
 		Code:       codeInfo.Code,
 		Msg:        msg,
 		cause:      err,
+		CodeInfo:   codeInfo,
 	}
 	return
 }
@@ -269,18 +267,6 @@ func (formatter *Formatter) FuncName2CodeInfo(fullFuncName string, line int) (co
 		Line:     strconv.Itoa(line),
 	}
 	return
-}
-
-//sendToChannel send *codeInfo to channel
-func (formatter *Formatter) sendToChannel(errMap *CodeInfo) {
-	if formatter.Channel != nil {
-		select {
-		case formatter.Channel <- errMap:
-			return
-		default:
-			return
-		}
-	}
 }
 
 //ModuleName help function, get mod package name from go.mod
