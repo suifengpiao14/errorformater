@@ -10,7 +10,7 @@ import (
 func TestFormatError(t *testing.T) {
 	include := []string{}
 	exclude := []string{}
-	formatter := New(include, exclude, nil, nil, nil)
+	formatter := New(include, exclude, nil, nil, nil, nil)
 	testErr := errors.New("test")
 	err := formatter.Msg(testErr.Error())
 	fmt.Println(err)
@@ -26,7 +26,7 @@ func TestError2(t *testing.T) {
 	g := &GithubComPkgErrors{}
 	include := []string{"errorformatter"}
 	exclude := []string{}
-	formatter := New(include, exclude, nil, g.PCs, g.Cause)
+	formatter := New(include, exclude, nil, g.PCs, g.Cause, nil)
 	testErr := Error2()
 	err := formatter.Error(testErr)
 	fmt.Println(err)

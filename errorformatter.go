@@ -25,6 +25,7 @@ type Formatter struct {
 	HttpStatus func(packageName string, funcName string) (int, bool)
 	PCs        func(err error, pc []uintptr) (n int)
 	Cause      func(err error) (tagetErr error)
+	Chan       chan<- *ErrorCode
 }
 
 type CodeInfo struct {
@@ -82,6 +83,7 @@ func New(
 	httpStatus func(packageName string, funcName string) (int, bool),
 	pcs func(err error, pc []uintptr) (n int),
 	cause func(err error) (tagetErr error),
+	ch chan<- *ErrorCode,
 ) (formatter *Formatter) {
 	formatter = &Formatter{
 		Include:    include,
@@ -89,6 +91,7 @@ func New(
 		HttpStatus: httpStatus,
 		PCs:        pcs,
 		Cause:      cause,
+		Chan:       ch,
 	}
 	return
 }
@@ -266,6 +269,15 @@ func (formatter *Formatter) FuncName2CodeInfo(fullFuncName string, line int) (co
 		Function: funcName,
 		Line:     strconv.Itoa(line),
 	}
+	return
+}
+
+//FuncName2CodeInfo generate *CodeInfo from full function name
+func (formatter *Formatter) SendToChain(errorCode *ErrorCode) (err error) {
+	if formatter.Chan == nil {
+		return
+	}
+	formatter.Chan <- errorCode
 	return
 }
 
