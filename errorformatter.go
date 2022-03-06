@@ -134,7 +134,7 @@ func (formatter *Formatter) Msg(msg string, args ...int) (err *ErrorCode) {
 }
 
 //Error generate *ErrorCode from error
-func (formatter *Formatter) SetError(err error) (newErr *ErrorCode) {
+func (formatter *Formatter) WrapError(err error) (newErr *ErrorCode) {
 	if formatter.Cause != nil {
 		err = formatter.Cause(err)
 	}
