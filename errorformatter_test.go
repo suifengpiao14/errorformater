@@ -28,7 +28,7 @@ func TestError2(t *testing.T) {
 	exclude := []string{}
 	formatter := New(include, exclude, nil, g.PCs, g.Cause, nil)
 	testErr := Error2()
-	err := formatter.Error(testErr)
+	err := formatter.SetError(testErr)
 	fmt.Println(err)
 }
 
