@@ -77,6 +77,28 @@ func (e *ErrorCode) ParseMsg(msg string) (ok bool) {
 	return
 }
 
+func (e *ErrorCode) TraceInfo() (traceList []*CodeInfo) {
+	traceList = make([]*CodeInfo, 0)
+	codeInfo := e.CodeInfo
+	for {
+		if codeInfo != nil {
+			copyCodeInfo := &CodeInfo{
+				Code:     codeInfo.Code,
+				Package:  codeInfo.Package,
+				Function: codeInfo.Function,
+				Line:     codeInfo.Line,
+				Msg:      codeInfo.Msg,
+			}
+			traceList = append(traceList, copyCodeInfo)
+			codeInfo = codeInfo.Cause
+		} else {
+			break
+		}
+	}
+
+	return
+}
+
 func New(
 	include []string,
 	exclude []string,
