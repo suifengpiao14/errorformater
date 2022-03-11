@@ -152,6 +152,7 @@ func (formatter *Formatter) Msg(msg string, args ...int) (err *ErrorCode) {
 		Msg:        msg,
 		CodeInfo:   codeInfo,
 	}
+	formatter.SendToChain(err)
 	return
 }
 
@@ -194,6 +195,7 @@ func (formatter *Formatter) WrapError(err error) (newErr *ErrorCode) {
 		cause:      err,
 		CodeInfo:   codeInfo,
 	}
+	formatter.SendToChain(newErr)
 	return
 }
 
