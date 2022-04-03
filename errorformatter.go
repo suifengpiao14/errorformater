@@ -155,6 +155,7 @@ func (formatter *Formatter) Msg(msg string, args ...int) (err *ErrorCode) {
 		Msg:        msg,
 		CodeInfo:   codeInfo,
 	}
+	formatter.SendToChain(err)
 	return
 }
 func (formatter *Formatter) GenerateError(httpStatus int, businessCode string, msg string) (err error) {
@@ -164,6 +165,9 @@ func (formatter *Formatter) GenerateError(httpStatus int, businessCode string, m
 
 //Error generate *ErrorCode from error
 func (formatter *Formatter) WrapError(err error) (newErr *ErrorCode) {
+	if err == nil {
+		return nil
+	}
 	if formatter.Cause != nil {
 		err = formatter.Cause(err)
 	}
@@ -198,6 +202,7 @@ func (formatter *Formatter) WrapError(err error) (newErr *ErrorCode) {
 		cause:      err,
 		CodeInfo:   codeInfo,
 	}
+	formatter.SendToChain(newErr)
 	return
 }
 
@@ -258,7 +263,7 @@ func (formatter *Formatter) Frames(frames *runtime.Frames) (codeInfo *CodeInfo) 
 
 	}
 	// msgArr、codeArr 第一个为root的，全部为空，没有意义
-	root.Msg = strings.Join(msgArr, ":")
+	root.Msg = strings.Join(msgArr, ":") // 构造第一个codeInfo,能记录调用链路，避免同一个地方出错，不同路径产生的code一致
 	switch len(codeArr) {
 	case 0:
 		root.Code = "000000000"
@@ -271,6 +276,12 @@ func (formatter *Formatter) Frames(frames *runtime.Frames) (codeInfo *CodeInfo) 
 		table := crc8.MakeTable(crc8.CRC8)
 		codePrefix := crc8.Checksum([]byte(restCodeStr), table)
 		root.Code = fmt.Sprintf("%3d%s", codePrefix, firstCode[3:])
+	}
+	cause := root.Cause
+	if cause != nil {
+		root.Package = cause.Package
+		root.Function = cause.Function
+		root.Line = cause.Line
 	}
 	codeInfo = root
 	return
