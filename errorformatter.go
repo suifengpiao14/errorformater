@@ -3,6 +3,7 @@ package errorformatter
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -30,6 +31,7 @@ type Formatter struct {
 
 type CodeInfo struct {
 	Code     string    `json:"code"`
+	File     string    `json:file`
 	Package  string    `json:"package"`
 	Function string    `json:"function"`
 	Line     string    `json:"line"`
@@ -84,6 +86,7 @@ func (e *ErrorCode) TraceInfo() (traceList []*CodeInfo) {
 		if codeInfo != nil {
 			copyCodeInfo := &CodeInfo{
 				Code:     codeInfo.Code,
+				File:     codeInfo.File,
 				Package:  codeInfo.Package,
 				Function: codeInfo.Function,
 				Line:     codeInfo.Line,
@@ -154,6 +157,10 @@ func (formatter *Formatter) Msg(msg string, args ...int) (err *ErrorCode) {
 	}
 	return
 }
+func (formatter *Formatter) GenerateError(httpStatus int, businessCode string, msg string) (err error) {
+	err = errors.Errorf(FORMAT_TPL, SEPARATOR, httpStatus, businessCode, SEPARATOR, msg)
+	return
+}
 
 //Error generate *ErrorCode from error
 func (formatter *Formatter) WrapError(err error) (newErr *ErrorCode) {
@@ -176,7 +183,7 @@ func (formatter *Formatter) WrapError(err error) (newErr *ErrorCode) {
 	}
 	frames = runtime.CallersFrames(pcArr[:n])
 	codeInfo := formatter.Frames(frames)
-	msg := err.Error()
+	msg := fmt.Sprintf("%s: %s", GetErrorType(err), err.Error()) // 增加error类型，方便第三方包包错判断
 	codeInfo.Msg = msg
 	if formatter.HttpStatus != nil {
 		tmpHttpStatus, ok := formatter.HttpStatus(codeInfo.Package, codeInfo.Function)
@@ -203,6 +210,7 @@ func (formatter *Formatter) Frames(frames *runtime.Frames) (codeInfo *CodeInfo) 
 	msgArr := make([]string, 0)
 	for {
 		frame, hasNext := frames.Next()
+		file := frame.File
 		fullname := frame.Function
 		line := frame.Line
 		if point.Code != "" {
@@ -245,7 +253,7 @@ func (formatter *Formatter) Frames(frames *runtime.Frames) (codeInfo *CodeInfo) 
 				}
 			}
 		}
-		point.Cause = formatter.FuncName2CodeInfo(fullname, line)
+		point.Cause = formatter.FuncName2CodeInfo(file, fullname, line)
 		point = point.Cause
 
 	}
@@ -269,7 +277,7 @@ func (formatter *Formatter) Frames(frames *runtime.Frames) (codeInfo *CodeInfo) 
 }
 
 //FuncName2CodeInfo generate *CodeInfo from full function name
-func (formatter *Formatter) FuncName2CodeInfo(fullFuncName string, line int) (codeInfo *CodeInfo) {
+func (formatter *Formatter) FuncName2CodeInfo(file string, fullFuncName string, line int) (codeInfo *CodeInfo) {
 	if fullFuncName == "" {
 		return &CodeInfo{}
 	}
@@ -287,6 +295,7 @@ func (formatter *Formatter) FuncName2CodeInfo(fullFuncName string, line int) (co
 	code := fmt.Sprintf("%03d%03d%03d", packeCrc, funcCrc, line)
 	codeInfo = &CodeInfo{
 		Code:     code,
+		File:     fmt.Sprintf("%s:%d", file, line),
 		Package:  packageName,
 		Function: funcName,
 		Line:     strconv.Itoa(line),
@@ -301,6 +310,24 @@ func (formatter *Formatter) SendToChain(errorCode *ErrorCode) (err error) {
 	}
 	formatter.Chan <- errorCode
 	return
+}
+
+func GetErrorType(err error) string {
+	if err == nil {
+		return ""
+	}
+	for err != nil {
+		cause, ok := err.(Causer)
+		if !ok {
+			break
+		}
+		err = cause.Cause()
+	}
+	rv := reflect.Indirect(reflect.ValueOf(err))
+	rt := rv.Type()
+	msg := fmt.Sprintf("%s.%s", rt.PkgPath(), rt.Name()) // 获取原始错误包信息，方便第三方包错判断
+	return msg
+
 }
 
 //ModuleName help function, get mod package name from go.mod
