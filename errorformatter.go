@@ -279,6 +279,7 @@ func (formatter *Formatter) Frames(frames *runtime.Frames) (codeInfo *CodeInfo) 
 	}
 	cause := root.Cause
 	if cause != nil {
+		root.File = cause.File
 		root.Package = cause.Package
 		root.Function = cause.Function
 		root.Line = cause.Line
