@@ -175,14 +175,15 @@ func (formatter *Formatter) WrapError(err error) (newErr *ErrorCode) {
 	if ok {
 		return e
 	}
+	//	err = errors.WithStack(err)
 	httpStatus := 500
-	pcArr := make([]uintptr, 32) // at least 1 entry needed
+	var pcArr [32]uintptr // at least 1 entry needed
 	var frames *runtime.Frames
 	n := 0
 	if formatter.PCs != nil {
-		n = formatter.PCs(err, pcArr)
+		n = formatter.PCs(err, pcArr[:])
 	} else {
-		n = runtime.Callers(SKIP, pcArr)
+		n = runtime.Callers(SKIP, pcArr[:])
 
 	}
 	frames = runtime.CallersFrames(pcArr[:n])
@@ -213,10 +214,12 @@ func (formatter *Formatter) Frames(frames *runtime.Frames) (codeInfo *CodeInfo) 
 	codeInfo = root
 	codeArr := make([]string, 0)
 	msgArr := make([]string, 0)
+	hasInclude := len(formatter.Include) > 0
+	hasExclude := len(formatter.Exclude) > 0
 	for {
 		frame, hasNext := frames.Next()
 		file := frame.File
-		fullname := frame.Function
+		fullFuncName := frame.Function
 		line := frame.Line
 		if point.Code != "" {
 			codeArr = append(codeArr, point.Code)
@@ -224,43 +227,36 @@ func (formatter *Formatter) Frames(frames *runtime.Frames) (codeInfo *CodeInfo) 
 		if point.Msg != "" {
 			msgArr = append(msgArr, point.Msg)
 		}
+		var matched bool
 
-		if len(formatter.Include) > 0 { //Include 中匹配任意规则即可
-			any := false
+		if !matched && hasInclude { //Include 中匹配任意规则即可
 			for _, keyword := range formatter.Include {
-				any = strings.Contains(fullname, keyword)
-				if any {
-					break
-				}
-			}
-			if !any {
-				if hasNext {
-					continue
-				} else {
+				matched = strings.Contains(fullFuncName, keyword)
+				if matched {
 					break
 				}
 			}
 		}
 
-		if len(formatter.Exclude) > 0 { //Exclude 中匹配任意规则即排除
-			any := false
+		if !matched && hasExclude { //Exclude 中匹配任意规则即排除
 			for _, keyword := range formatter.Exclude {
-				any = strings.Contains(fullname, keyword)
-				if any {
-					break
-				}
-			}
-			if any {
-				if hasNext {
-					continue
-				} else {
+				matched = strings.Contains(fullFuncName, keyword)
+				if matched {
 					break
 				}
 			}
 		}
-		point.Cause = formatter.FuncName2CodeInfo(file, fullname, line)
-		point = point.Cause
 
+		if !hasInclude && !hasExclude {
+			matched = true
+		}
+		if matched {
+			point.Cause = formatter.FuncName2CodeInfo(file, fullFuncName, line)
+			point = point.Cause
+		}
+		if !hasNext {
+			break
+		}
 	}
 	// msgArr、codeArr 第一个为root的，全部为空，没有意义
 	root.Msg = strings.Join(msgArr, ":") // 构造第一个codeInfo,能记录调用链路，避免同一个地方出错，不同路径产生的code一致
@@ -275,7 +271,7 @@ func (formatter *Formatter) Frames(frames *runtime.Frames) (codeInfo *CodeInfo) 
 		restCodeStr := strings.Join(restCode, ":")
 		table := crc8.MakeTable(crc8.CRC8)
 		codePrefix := crc8.Checksum([]byte(restCodeStr), table)
-		root.Code = fmt.Sprintf("%3d%s", codePrefix, firstCode[3:])
+		root.Code = fmt.Sprintf("%03d%s", codePrefix, firstCode[3:])
 	}
 	cause := root.Cause
 	if cause != nil {
@@ -373,6 +369,8 @@ func (pkgErrors *GithubComPkgErrors) PCs(err error, pc []uintptr) (n int) {
 		for i, frame := range stack {
 			pc[i] = uintptr(frame) - 1
 		}
+	} else { // 没有StackTrace 直接使用当前函数栈
+		n = runtime.Callers(SKIP+1, pc[:])
 	}
 	return n
 }

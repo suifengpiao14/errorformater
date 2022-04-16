@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-var ErrorMapFile = "errorMapFiel.json"
+var ErrorMapFile = "errorMapFile.json"
 var Include []string
 var Exclude []string
 var PackageHttpstatusMap map[string]int
@@ -39,8 +39,7 @@ func InitErrFormatter() *Formatter {
 				panic(err)
 			}
 		}
-		go SaveCodeInfo()
-
+		SaveCodeInfo()
 	})
 	return errFormatter
 }
@@ -69,8 +68,17 @@ func SaveCodeInfo() {
 
 	ch := GetErrorChain()
 	codeCodeTable := make(map[string][]*CodeInfo)
+	var filename string
+	var err error
 	if ErrorMapFile != "" {
-		b, err := os.ReadFile(ErrorMapFile)
+		filename, err = filepath.Abs(ErrorMapFile)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	if filename != "" {
+		b, err := os.ReadFile(filename)
 		if err != nil {
 			panic(err)
 		}
@@ -89,10 +97,10 @@ func SaveCodeInfo() {
 
 		for err := range ch {
 			codeCodeTable[err.Code] = err.TraceInfo()
-			if ErrorMapFile != "" {
+			if filename != "" {
 				b, err := json.Marshal(codeCodeTable)
 				if err == nil {
-					os.WriteFile(ErrorMapFile, b, os.ModePerm)
+					os.WriteFile(filename, b, os.ModePerm)
 				}
 			}
 		}
