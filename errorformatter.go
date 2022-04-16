@@ -31,7 +31,7 @@ type Formatter struct {
 
 type CodeInfo struct {
 	Code     string    `json:"code"`
-	File     string    `json:file`
+	File     string    `json:"file"`
 	Package  string    `json:"package"`
 	Function string    `json:"function"`
 	Line     string    `json:"line"`
