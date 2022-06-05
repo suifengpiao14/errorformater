@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/sigurn/crc8"
+	"github.com/sigurn/crc16"
 	"golang.org/x/mod/modfile"
 )
 
@@ -269,9 +269,9 @@ func (formatter *Formatter) Frames(frames *runtime.Frames) (codeInfo *CodeInfo) 
 		firstCode := codeArr[0]
 		restCode := codeArr[1:]
 		restCodeStr := strings.Join(restCode, ":")
-		table := crc8.MakeTable(crc8.CRC8)
-		codePrefix := crc8.Checksum([]byte(restCodeStr), table)
-		root.Code = fmt.Sprintf("%03d%s", codePrefix, firstCode[3:])
+		table := crc16.MakeTable(crc16.CRC16_MAXIM)
+		codePrefix := crc16.Checksum([]byte(restCodeStr), table)
+		root.Code = fmt.Sprintf("%05d%s", codePrefix, firstCode[5:])
 	}
 	cause := root.Cause
 	if cause != nil {
@@ -297,10 +297,9 @@ func (formatter *Formatter) FuncName2CodeInfo(file string, fullFuncName string, 
 	firstDotIndex := lastSlashIndex + strings.Index(basename, ".")
 	packageName := fullFuncName[:firstDotIndex]
 	funcName := fullFuncName[firstDotIndex+1:]
-	table := crc8.MakeTable(crc8.CRC8)
-	packeCrc := crc8.Checksum([]byte(packageName), table)
-	funcCrc := crc8.Checksum([]byte(funcName), table)
-	code := fmt.Sprintf("%03d%03d%03d", packeCrc, funcCrc, line)
+	table := crc16.MakeTable(crc16.CRC16_MAXIM)
+	nameCrc := crc16.Checksum([]byte(basename), table)
+	code := fmt.Sprintf("%05d%04d", nameCrc, line)
 	codeInfo = &CodeInfo{
 		Code:     code,
 		File:     fmt.Sprintf("%s:%d", file, line),

@@ -2,9 +2,14 @@ package errorformatter
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
+	"hash/crc32"
+
 	"github.com/pkg/errors"
+	"github.com/sigurn/crc16"
+	"github.com/sigurn/crc8"
 )
 
 func TestFormatError(t *testing.T) {
@@ -35,4 +40,63 @@ func TestError2(t *testing.T) {
 func TestFmtErrorf(t *testing.T) {
 	err := fmt.Errorf("test")
 	fmt.Println("%w", err)
+}
+
+func TestXOR(t *testing.T) {
+	poly := 4
+	bpoly := fmt.Sprintf("%b", poly)
+	data := 0
+	bdata := fmt.Sprintf("%b", data)
+	oxr := poly ^ data
+	borx := fmt.Sprintf("%b", oxr)
+	fmt.Println(bpoly)
+	fmt.Println(bdata)
+	fmt.Println(borx)
+}
+
+func TestCRC8(t *testing.T) {
+	fmt.Printf("%b\n", 0x107)
+	fmt.Printf("%b\n--%d\n", 0xd^0x107, 265^263)
+	fmt.Printf("%b\n--%d\n", 0xd^0x107, 265%263)
+	table := crc8.MakeTable(crc8.CRC8)
+	max := uint8(0)
+	for k, v := range table.Data {
+		if max < v {
+			max = v
+		}
+		fmt.Printf("k:%d->%d\n", k, v)
+	}
+	fmt.Println(max)
+}
+
+func TestCRC32(t *testing.T) {
+	data := []byte("abeceonvee")
+	crc32 := crc32.ChecksumIEEE(data)
+	fmt.Printf("%U\n", crc32)
+}
+func TestCRC16(t *testing.T) {
+	table := crc16.MakeTable(crc16.CRC16_MAXIM)
+	//data := []byte("abeceonvee1")
+	data := []byte("5a435a435a43")
+	crc := crc16.Checksum(data, table)
+	fmt.Printf("%x\n", crc)
+}
+
+var ValueArea = 10000 //256 * 256
+
+func TestProbabilityN(t *testing.T) {
+	n := 118
+	p := ProbabilityN(n, 8)
+	totalP := (1 - p)
+	fmt.Println(totalP)
+}
+
+func ProbabilityN(n int, precision int) (out float64) {
+	p := 1.0
+	for i := 1; i <= n; i++ {
+		p *= float64(ValueArea-i+1) / float64(ValueArea)
+	}
+	unit := math.Pow10(precision)
+	out = float64(int64(p*unit+0.5)) / unit
+	return out
 }

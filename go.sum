@@ -1,5 +1,9 @@
+github.com/howeyc/crc16 v0.0.0-20171223171357-2b2a61e366a6 h1:IIVxLyDUYErC950b8kecjoqDet8P5S4lcVRUOM6rdkU=
+github.com/howeyc/crc16 v0.0.0-20171223171357-2b2a61e366a6/go.mod h1:JslaLRrzGsOKJgFEPBP65Whn+rdwDQSk0I0MCRFe2Zw=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
+github.com/sigurn/crc16 v0.0.0-20211026045750-20ab5afb07e3 h1:aQKxg3+2p+IFXXg97McgDGT5zcMrQoi0EICZs8Pgchs=
+github.com/sigurn/crc16 v0.0.0-20211026045750-20ab5afb07e3/go.mod h1:9/etS5gpQq9BJsJMWg1wpLbfuSnkm8dPF6FdW2JXVhA=
 github.com/sigurn/crc8 v0.0.0-20160107002456-e55481d6f45c h1:hk0Jigjfq59yDMgd6bzi22Das5tyxU0CtOkh7a9io84=
 github.com/sigurn/crc8 v0.0.0-20160107002456-e55481d6f45c/go.mod h1:cyrWuItcOVIGX6fBZ/G00z4ykprWM7hH58fSavNkjRg=
 github.com/sigurn/utils v0.0.0-20190728110027-e1fefb11a144 h1:ccb8W1+mYuZvlpn/mJUMAbsFHTMCpcJBS78AsBQxNcY=
