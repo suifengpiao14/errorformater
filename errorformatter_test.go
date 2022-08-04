@@ -9,7 +9,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sigurn/crc16"
-	"github.com/sigurn/crc8"
 )
 
 func TestFormatError(t *testing.T) {
@@ -52,21 +51,6 @@ func TestXOR(t *testing.T) {
 	fmt.Println(bpoly)
 	fmt.Println(bdata)
 	fmt.Println(borx)
-}
-
-func TestCRC8(t *testing.T) {
-	fmt.Printf("%b\n", 0x107)
-	fmt.Printf("%b\n--%d\n", 0xd^0x107, 265^263)
-	fmt.Printf("%b\n--%d\n", 0xd^0x107, 265%263)
-	table := crc8.MakeTable(crc8.CRC8)
-	max := uint8(0)
-	for k, v := range table.Data {
-		if max < v {
-			max = v
-		}
-		fmt.Printf("k:%d->%d\n", k, v)
-	}
-	fmt.Println(max)
 }
 
 func TestCRC32(t *testing.T) {
